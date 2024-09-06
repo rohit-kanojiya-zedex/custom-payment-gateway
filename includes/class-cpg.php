@@ -5,8 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Cpg' ) ) {
     class Cpg {
-        protected static ?Cpg $instance = null;
-        public Cpg_payment $cpgPayment;
+        public static ?Cpg $instance = null;
+        public CpgPayment $cpgPayment;
 
         public static function getInstance(): Cpg {
             if ( is_null( self::$instance ) ) {
@@ -17,6 +17,7 @@ if ( ! class_exists( 'Cpg' ) ) {
 
         public function __construct() {
             add_action('plugins_loaded', array($this, 'initSetup'));
+            add_filter('woocommerce_payment_gateways', array($this, 'add_gateway_class'));
         }
 
         public function initSetup() {
@@ -30,15 +31,14 @@ if ( ! class_exists( 'Cpg' ) ) {
         }
 
         public function init() {
-            $this->cpgPayment = Cpg_payment::getInstance();
+            $this->cpgPayment = CpgPayment::getInstance();
         }
 
         public function add_gateway() {
-            add_filter('woocommerce_payment_gateways', array($this, 'add_gateway_class'));
         }
 
         public function add_gateway_class($methods) {
-            $methods[] = 'Cpg_payment'; // Add your gateway class here
+            $methods[] = 'CpgPayment';
             return $methods;
         }
     }
