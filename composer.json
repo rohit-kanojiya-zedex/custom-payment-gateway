@@ -1,0 +1,14 @@
+{
+    "name": "uniquepaymentgatway/easy-stripe-gateway",
+    "description": "Now make the payment easy with Easy Stripe Gateway",
+    "type": "wordpress-plugin",
+    "version": "1.0.0",
+    "require": {
+        "stripe/stripe-php": "^15.8"
+    },
+    "autoload": {
+        "classmap": [
+            "includes/"
+        ]
+    }
+}
