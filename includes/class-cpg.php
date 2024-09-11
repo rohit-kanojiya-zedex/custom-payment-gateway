@@ -41,5 +41,6 @@ if ( ! class_exists( 'Cpg' ) ) {
             $methods[] = 'CpgPayment';
             return $methods;
         }
+
     }
 }

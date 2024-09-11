@@ -20,7 +20,7 @@ require_once plugin_dir_path( __FILE__ ) . 'vendor/autoload.php';
 // Define plugin constants.
 define( 'EASY_STRIPE_PLUGIN_DIR', untrailingslashit( plugin_dir_path( __FILE__ ) ) );
 define( 'EASY_STRIPE_PLUGIN_URL', untrailingslashit( plugin_dir_url( __FILE__ ) ) );
-define( 'EASY_STRIPE_VERSION', '1.0.0' );
+define( 'EASY_STRIPE_VERSION', '1.0.2' );
 define( 'EASY_STRIPE_INCLUDES', EASY_STRIPE_PLUGIN_DIR . '/includes/' );
 define( 'EASY_STRIPE_ASSETS', EASY_STRIPE_PLUGIN_URL . '/assets/' );
 define( 'EASY_STRIPE_CSS', EASY_STRIPE_ASSETS . 'css/' );
@@ -47,38 +47,15 @@ add_action( 'plugins_loaded', 'initialize_custom_payment_gateway' );
 
 
 
-
-/**
- * Custom function to declare compatibility with cart_checkout_blocks feature
- */
-function declare_cart_checkout_blocks_compatibility() {
-    // Check if the required class exists
-    if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
-        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('cart_checkout_blocks', __FILE__, true);
-    }
-}
-// Hook the custom function to the 'before_woocommerce_init' action
-add_action('before_woocommerce_init', 'declare_cart_checkout_blocks_compatibility');
-
-// Hook the custom function to the 'woocommerce_blocks_loaded' action
 add_action( 'woocommerce_blocks_loaded', 'oawoo_register_order_approval_payment_method_type' );
-
-/**
- * Custom function to register a payment method type
- */
 function oawoo_register_order_approval_payment_method_type() {
-    // Check if the required class exists
     if ( ! class_exists( 'Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType' ) ) {
         return;
     }
-
     include_once EASY_STRIPE_INCLUDES . 'class-block.php';
-
-    // Hook the registration function to the 'woocommerce_blocks_payment_method_type_registration' action
     add_action(
         'woocommerce_blocks_payment_method_type_registration',
         function( Automattic\WooCommerce\Blocks\Payments\PaymentMethodRegistry $payment_method_registry ) {
-            // Register an instance of My_Custom_Gateway_Blocks
             $payment_method_registry->register( new My_Custom_Gateway_Blocks );
         }
     );

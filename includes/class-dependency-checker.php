@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class Dependency_Checker {
+
     public static function is_woocommerce_active() {
         return class_exists('WC_Payment_Gateway');
     }
@@ -17,6 +18,8 @@ class Dependency_Checker {
             });
             $all_met = false;
         }
+
         return $all_met;
     }
+
 }
