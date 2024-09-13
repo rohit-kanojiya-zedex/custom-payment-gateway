@@ -6,3 +6,5 @@
             <div id="stripe-card-errors" role="alert"></div>
         </div>
 </form>
+
+

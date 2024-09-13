@@ -6,6 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( ! class_exists('CpgPayment') ) {
     class CpgPayment extends WC_Payment_Gateway {
         public static ?CpgPayment $instance = null;
+        public $stripeToken = null;
+
 
         public function __construct() {
             $this->id                 = 'custom_stripe';
@@ -24,10 +26,10 @@ if ( ! class_exists('CpgPayment') ) {
             $this->title        = $this->get_option( 'title' );
             $this->description  = $this->get_option( 'description' );
             $this->testmode     = 'yes' === $this->get_option( 'testmode' );
-            $this->stripe_key   = $this->testmode ? $this->get_option( 'testmode_key' ) : $this->get_option( 'live_key' );
+            $this->stripe_key   = $this->testmode ? $this->get_option( 'secretmode_key' ) : $this->get_option( 'live_key' );
+            $this->publishable_key   = $this->testmode ? $this->get_option( 'publishable_key' ) : '';
             $this->payment_method = $this->get_option('payment_method');
 
-            \Stripe\Stripe::setApiKey($this->stripe_key);
 
             add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
             add_action( 'woocommerce_receipt_' . $this->id, array( $this, 'receipt_page' ) );
@@ -74,8 +76,15 @@ if ( ! class_exists('CpgPayment') ) {
                     'default'     => 'yes',
                     'description' => __( 'Place the payment gateway in test mode using test API keys.', 'woocommerce' ),
                 ),
-                'testmode_key' => array(
+                'secretmode_key' => array(
                     'title'       => __( 'Test Secret Key', 'woocommerce' ),
+                    'type'        => 'text',
+                    'description' => __( 'This is the secret key used in test mode.', 'woocommerce' ),
+                    'default'     => '',
+                    'desc_tip'    => true,
+                ),
+                'publishable_key' => array(
+                    'title'       => __( 'Test Publishable key', 'woocommerce' ),
                     'type'        => 'text',
                     'description' => __( 'This is the secret key used in test mode.', 'woocommerce' ),
                     'default'     => '',
@@ -91,22 +100,25 @@ if ( ! class_exists('CpgPayment') ) {
             );
         }
 
-        public function helloMount($fragments){
+        public function GenerateToken($fragments){
             ob_start();
             ?>
             <script>
-                helloMount();
+                mountAndGenerateToken();
             </script>
             <?php
             $html = ob_get_clean();
             $fragments['.woocommerce-checkout-payment'] = $fragments['.woocommerce-checkout-payment'] . $html;
             return $fragments;
-         }
+        }
+
 
         public function payment_fields() {
             if (is_checkout() && $this->payment_method === 'direct') {
-                add_filter('woocommerce_update_order_review_fragments', [$this , 'helloMount']);
-                load_template(EASY_STRIPE_TEMPLATES . 'direct-payment-form.php', false);
+                if (wp_doing_ajax()) {
+                    load_template(EASY_STRIPE_TEMPLATES . 'direct-payment-form.php', false);
+                    add_filter('woocommerce_update_order_review_fragments', [$this, 'GenerateToken']);
+                }
                 wp_enqueue_script('my-strip');
                 wp_enqueue_script('stripe-js');
             } else {
@@ -118,6 +130,7 @@ if ( ! class_exists('CpgPayment') ) {
             if (is_checkout() && $this->payment_method === 'direct') {
                 wp_register_script('stripe-js', 'https://js.stripe.com/v3/', array('jquery'), EASY_STRIPE_VERSION, true);
                 wp_register_script('my-strip' , EASY_STRIPE_JS .'my-strip.js');
+                wp_localize_script('stripe-js', 'stripeObj', array('ajaxurl' => admin_url('admin-ajax.php'),'publishable_key'=>$this->publishable_key));
             }
         }
 
@@ -127,98 +140,98 @@ if ( ! class_exists('CpgPayment') ) {
 //            }
 //        }
 
-        public function process_payment( $order_id ) {
-            $order = wc_get_order( $order_id );
+        public function process_payment($order_id) {
+            $order = wc_get_order($order_id);
+            $this->stripeToken = WC()->session->get('stripe_token');
 
             if ($this->payment_method === 'direct') {
-                $stripeToken = isset($_POST['stripeToken']) ? sanitize_text_field($_POST['stripeToken']) : '';
-
-                if (empty($stripeToken)) {
+                if (empty($this->stripeToken)) {
                     wc_add_notice(__('Payment error: Missing payment token.', 'woocommerce'), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
+                    return ['result' => 'failure', 'redirect' => ''];
                 }
 
                 try {
-                    // Set Stripe API Key
-                    \Stripe\Stripe::setApiKey($this->testmode ? $this->get_option('testmode_key') : $this->get_option('live_key'));
+                    \Stripe\Stripe::setApiKey($this->stripe_key);
 
-                    // Create a charge
                     $charge = \Stripe\Charge::create([
                         'amount'      => $order->get_total() * 100, // Amount in cents
                         'currency'    => get_woocommerce_currency(),
                         'description' => 'Order #' . $order_id,
-                        'source'      => $stripeToken,
+                        'source'      => $this->stripeToken,
                         'metadata'    => ['order_id' => $order_id],
                     ]);
 
-                    // Payment was successful
+                    $order->update_meta_data('_stripe_charge_id', $charge->id);
+                    $order->save();
+
                     $order->payment_complete();
                     WC()->cart->empty_cart();
 
-                    // Return success result and redirect to the thank you page
-                    return array(
-                        'result'   => 'success',
-                        'redirect' => $this->get_return_url( $order )
-                    );
+                    WC()->session->__unset('stripe_token');
 
-                } catch (\Stripe\Exception\CardException $e) {
-                    // Card error (e.g., insufficient funds, expired card)
-                    wc_add_notice(__('Payment error:', 'woocommerce') . ' ' . $e->getError()->message, 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
-                } catch (\Stripe\Exception\RateLimitException $e) {
-                    // Rate limit error
-                    wc_add_notice(__('Payment error: Too many requests made to the API too quickly.', 'woocommerce'), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
-                } catch (\Stripe\Exception\InvalidRequestException $e) {
-                    // Invalid parameters error
-                    wc_add_notice(__('Payment error: Invalid parameters.', 'woocommerce'), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
-                } catch (\Stripe\Exception\AuthenticationException $e) {
-                    // Authentication error (e.g., invalid API key)
-                    wc_add_notice(__('Payment error: Authentication with Stripe failed.', 'woocommerce'), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
-                } catch (\Stripe\Exception\ApiConnectionException $e) {
-                    // Network error
-                    wc_add_notice(__('Payment error: Network communication with Stripe failed.', 'woocommerce'), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
-                } catch (\Exception $e) {
-                    // General error
-                    wc_add_notice(__('Payment error:', 'woocommerce') . ' ' . $e->getMessage(), 'error');
-                    return array(
-                        'result'   => 'failure',
-                        'redirect' => ''
-                    );
+                    return ['result' => 'success', 'redirect' => $this->get_return_url($order)];
                 }
+                catch (\Stripe\Exception\CardException $e) {
+                    $message = __('Payment error:', 'woocommerce') . ' ' . $e->getError()->message;
+                } catch (\Stripe\Exception\RateLimitException $e) {
+                    $message = __('Payment error: Too many requests made to the API too quickly.', 'woocommerce');
+                } catch (\Stripe\Exception\AuthenticationException $e) {
+                    $message = __('Payment error: Authentication with Stripe failed.', 'woocommerce');
+                } catch (\Stripe\Exception\ApiConnectionException $e) {
+                    $message = __('Payment error: Network communication with Stripe failed.', 'woocommerce');
+                } catch (\Exception $e) {
+                    $message = __('Payment error:', 'woocommerce') . ' ' . $e->getMessage();
+                }
+
+                wc_add_notice($message, 'error');
+                return ['result' => 'failure', 'redirect' => ''];
 
             } else {
                 // Redirect payment method
                 $order->update_status('on-hold', __('Awaiting redirect payment.', 'woocommerce'));
-
-                // Return success result and redirect to the checkout page or a custom URL if needed
-                return array(
-                    'result'   => 'success',
-                    'redirect' => $this->get_return_url( $order ) // Adjust if needed for redirect
-                );
+                return ['result' => 'success', 'redirect' => $this->get_return_url($order)];
             }
         }
+
+
+        public function process_refund($order_id, $amount = null, $reason = '') {
+            $order = wc_get_order($order_id);
+
+            if (!$order) {
+                return new WP_Error('order_not_found', __('Order not found.', 'woocommerce'));
+            }
+
+            $charge_id = $order->get_meta('_stripe_charge_id'); // Store the charge ID when the payment is processed
+
+            if (empty($charge_id)) {
+                return new WP_Error('charge_id_missing', __('Charge ID is missing for this order.', 'woocommerce'));
+            }
+
+            try {
+                \Stripe\Stripe::setApiKey($this->stripe_key);
+
+                $refund = \Stripe\Refund::create([
+                    'charge' => $charge_id,
+                    'amount'  => $amount ? $amount * 100 : null,
+                ]);
+
+                if ($refund->status === 'succeeded') {
+                    $order->add_order_note(sprintf(__('Refunded %s', 'woocommerce'), wc_price($amount)));
+                    return true;
+                } else {
+                    return new WP_Error('refund_failed', __('Refund failed.', 'woocommerce'));
+                }
+            } catch (\Stripe\Exception\CardException $e) {
+                return new WP_Error('card_error', $e->getError()->message);
+            } catch (\Stripe\Exception\RateLimitException $e) {
+                return new WP_Error('rate_limit_error', __('Too many requests made to the API too quickly.', 'woocommerce'));
+            } catch (\Stripe\Exception\AuthenticationException $e) {
+                return new WP_Error('authentication_error', __('Authentication with Stripe failed.', 'woocommerce'));
+            } catch (\Stripe\Exception\ApiConnectionException $e) {
+                return new WP_Error('api_connection_error', __('Network communication with Stripe failed.', 'woocommerce'));
+            }
+        }
+
 
         public static function getInstance(): CpgPayment {
             if ( is_null( self::$instance ) ) {

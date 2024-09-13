@@ -1,16 +1,27 @@
-function helloMount(){
-    console.log("hello after render");
-    var stripe = Stripe('pk_test_51PuvDJRsZwJIlbd4SpX7fITdsnGFZMwnrwKlsJl6KKfo1BXXwHb0jtqb2xnAOiF9TfDBFonu0Wf7pIPcEQDNE7hl00L6TMbywa');
-    var elements = stripe.elements();
-    var card = elements.create('card');
+function mountAndGenerateToken() {
+    stripe = Stripe(stripeObj.publishable_key);
+    const elements = stripe.elements();
+    card = elements.create('card');
     card.mount('#stripe-card-element');
+    jQuery(function($) {
+        $('form.checkout').on('submit', function (event) {
+            event.preventDefault();
+            stripe.createToken(card).then(function (result) {
+                if (result?.error) {
+                    $('#stripe-card-errors').text(result?.error?.message);
+                } else {
+                    $.post(stripeObj.ajaxurl, {
+                        action: 'stripAction',
+                        data : {token: result?.token?.id},
+                    }, function (response) {
+                        if (response?.status) {
+                            $('form.checkout').off('submit').submit();
+                        }else{
+                            $('#stripe-card-errors').text('An error occurred while processing the payment.');
+                        }
+                    }, 'json')
+                }
+            });
+        });
+    });
 }
-
-
-
-
-
-
-
-
-
