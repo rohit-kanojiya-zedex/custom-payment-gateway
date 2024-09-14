@@ -5,6 +5,9 @@
             <div id="stripe-card-element"></div>
             <div id="stripe-card-errors" role="alert"></div>
         </div>
+    <label>
+        <input type="checkbox" id="save-card" name="save_card" /> Save card details for future use
+    </label>
 </form>
 
 

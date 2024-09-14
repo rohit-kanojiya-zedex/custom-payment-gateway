@@ -140,9 +140,12 @@ if ( ! class_exists('CpgPayment') ) {
 //            }
 //        }
 
+
         public function process_payment($order_id) {
             $order = wc_get_order($order_id);
             $this->stripeToken = WC()->session->get('stripe_token');
+
+            $payment_method_id = isset($_POST['payment_method']) ? sanitize_text_field($_POST['payment_method']) : '';
 
             if ($this->payment_method === 'direct') {
                 if (empty($this->stripeToken)) {
@@ -153,13 +156,42 @@ if ( ! class_exists('CpgPayment') ) {
                 try {
                     \Stripe\Stripe::setApiKey($this->stripe_key);
 
-                    $charge = \Stripe\Charge::create([
-                        'amount'      => $order->get_total() * 100, // Amount in cents
-                        'currency'    => get_woocommerce_currency(),
-                        'description' => 'Order #' . $order_id,
-                        'source'      => $this->stripeToken,
-                        'metadata'    => ['order_id' => $order_id],
-                    ]);
+                    // Retrieve customer ID
+                    $user_id = get_current_user_id();
+                    $customer_id = get_user_meta($user_id, 'stripe_customer_id', true);
+
+//
+//                    $charge = \Stripe\Charge::create([
+//                        'amount'      => $order->get_total() * 100, // Amount in cents
+//                        'currency'    => get_woocommerce_currency(),
+//                        'description' => 'Order #' . $order_id,
+//                        'source'      => $this->stripeToken,
+//                        'metadata'    => ['order_id' => $order_id],
+//                    ]);
+
+                    if ($payment_method_id) {
+                        // Use saved card
+                        $charge = \Stripe\PaymentIntent::create([
+                            'amount' => $order->get_total() * 100,
+                            'currency' => get_woocommerce_currency(),
+                            'customer' => get_user_meta(get_current_user_id(), 'stripe_customer_id', true),
+                            'payment_method' => $payment_method_id,
+                            'off_session' => true,
+                            'confirm' => true,
+                        ]);
+                    } elseif ($this->stripeToken) {
+                        // Use new card
+                        $charge = \Stripe\Charge::create([
+                            'amount' => $order->get_total() * 100,
+                            'currency' => get_woocommerce_currency(),
+                            'description' => 'Order #' . $order_id,
+                            'source' => $this->stripeToken,
+                            'metadata' => ['order_id' => $order_id],
+                        ]);
+                    } else {
+                        wc_add_notice(__('Payment error: Missing payment method.', 'woocommerce'), 'error');
+                        return ['result' => 'failure', 'redirect' => ''];
+                    }
 
                     $order->update_meta_data('_stripe_charge_id', $charge->id);
                     $order->save();
@@ -231,6 +263,8 @@ if ( ! class_exists('CpgPayment') ) {
                 return new WP_Error('api_connection_error', __('Network communication with Stripe failed.', 'woocommerce'));
             }
         }
+
+
 
 
         public static function getInstance(): CpgPayment {
